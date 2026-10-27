@@ -64,7 +64,7 @@ const hu = E.buyAnimal('husky', 'm', 1), po = E.buyAnimal('pomeranian', 'f', 1);
 ok(E.findRecipe(hu, po)?.result === 'samoyed', 'husky + pomeranian recipe found');
 let got = false;
 for (let i = 0; i < 40 && !got; i++) {
-  S().feed = 999; E.feedHabitat(1); hu.restUntil = po.restUntil = 0; hu.happy = po.happy = 100;
+  S().feed = 999; E.feedHabitat(1); S().event = null; for (const x of [hu, po]) { x.restUntil = 0; x.happy = 100; x.sick = false; x.health = 100; }
   E.cleanHabitat(1);
   E.startBreeding(hu.id, po.id);
   advance(E.breedTime(hu, po) + 1);
