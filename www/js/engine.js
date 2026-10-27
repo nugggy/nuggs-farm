@@ -57,7 +57,7 @@ function freshState() {
     stats: { feeds: 0, litters: 0, babies: 0, sold: 0, orders: 0, mutations: 0, recipes: 0, ribbons: 0, firsts: 0, earned: 0, removed: 0, best4: false, best5: false, rainbow: false },
     daily: { last: '', streak: 0 },
     event: null, nextEventAt: t + 6 * 60000,
-    settings: { sound: true, music: false },
+    settings: { sound: true, music: false, quality: 'high' },
     seenIntro: false,
   };
 }
@@ -735,7 +735,7 @@ function happinessDrain(a) {
 
 function step(dt, offline) {
   const t = now();
-  const soft = offline ? 0.5 : 1;
+  const soft = offline ? 0.4 : 1;
   for (const a of Object.values(S.animals)) {
     let h = 100 / (22 * 60);
     if (a.trait === 'hearty') h *= 0.7;
@@ -748,7 +748,7 @@ function step(dt, offline) {
     if (a.hunger < 8 || dirty || a.happy < 8) a.health -= (100 / (18 * 60)) * dt * soft;
     else if (!a.sick && a.hunger > 40) a.health += (100 / (25 * 60)) * dt;
     if (a.sick) a.health -= (100 / (30 * 60)) * dt * soft;
-    a.health = clamp(a.health, 0, 100);
+    a.health = clamp(a.health, offline ? 30 : 0, 100);
     if (!a.sick) {
       let chance = a.health < 50 ? 0.0015 : 0.00003;
       if (a.trait === 'sickly') chance *= 3;

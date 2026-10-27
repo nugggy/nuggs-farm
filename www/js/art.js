@@ -2,7 +2,19 @@
 // and a palette; poses are 'idle', 'walk', 'play', 'eat', 'sleep' and (birds) 'fly'.
 // Drawings are side-on, facing right, with the feet at (0, 0). One unit is roughly one pixel at scale 1.
 
-const OUT = '#2a1c10';
+const OUT = '#3a291c';
+
+// Soft shading: ell(), rrect() and circle() remember the last shape so fs() can fill it with a
+// radial gradient lit from the top left. Shading can be turned off for low-end devices.
+const SH = { on: true, last: null };
+export function setShading(on) { SH.on = on; }
+const shadeCache = new Map();
+function tone(col, amt) {
+  const k = col + amt;
+  let v = shadeCache.get(k);
+  if (!v) { v = shade(col, amt); if (shadeCache.size > 4000) shadeCache.clear(); shadeCache.set(k, v); }
+  return v;
+}
 
 // ---------- colour helpers ----------
 function hexToHsl(hex) {
@@ -138,11 +150,23 @@ export const ART = {
 };
 
 // ---------- drawing primitives ----------
-function ell(c, x, y, rx, ry, rot = 0) { c.beginPath(); c.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, Math.PI * 2); }
-function fill(c, col) { c.fillStyle = col; c.fill(); }
-function fs(c, col) { c.fillStyle = col; c.fill(); c.stroke(); }
-function rrect(c, x, y, w, h, r) { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, r) : c.rect(x, y, w, h); }
-function circle(c, x, y, r) { c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); }
+function ell(c, x, y, rx, ry, rot = 0) { c.beginPath(); c.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, Math.PI * 2); SH.last = [x, y, rx, ry]; }
+function fill(c, col) { c.fillStyle = col; c.fill(); SH.last = null; }
+function fs(c, col) {
+  const L = SH.last; SH.last = null;
+  if (SH.on && L && typeof col === 'string' && L[2] * L[3] > 9) {
+    const [x, y, rx, ry] = L, r = Math.max(rx, ry);
+    const g = c.createRadialGradient(x - rx * 0.32, y - ry * 0.42, r * 0.05, x, y, r * 1.18);
+    g.addColorStop(0, tone(col, 0.09)); g.addColorStop(0.55, col); g.addColorStop(1, tone(col, -0.11));
+    c.fillStyle = g;
+  } else c.fillStyle = col;
+  c.fill(); c.stroke();
+}
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, r) : c.rect(x, y, w, h); SH.last = [x + w / 2, y + h / 2, w / 2, h / 2]; }
+function circle(c, x, y, r) { c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); SH.last = [x, y, r, r]; }
+// Soft specular highlight for rounded masses.
+function gloss(c, x, y, rx, ry, a = 0.22) { c.save(); c.globalAlpha = a; c.beginPath(); c.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), -0.35, 0, Math.PI * 2); c.fillStyle = '#ffffff'; c.fill(); c.restore(); SH.last = null; }
+function blush(c, x, y, r) { c.save(); c.globalAlpha = 0.32; c.beginPath(); c.ellipse(x, y, r, r * 0.62, 0, 0, Math.PI * 2); c.fillStyle = '#ff7f93'; c.fill(); c.restore(); }
 
 // Seeded random so markings stay put between frames.
 function rng(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
@@ -167,11 +191,15 @@ function eye(c, x, y, r, P, st) {
     c.beginPath(); c.arc(x, y - r * 0.2, r * 0.8, 0.15 * Math.PI, 0.85 * Math.PI); c.lineWidth = c.lineWidth; c.stroke();
     return;
   }
-  ell(c, x, y, r, r * (st.blink ? 0.12 : 1.05)); fs(c, '#ffffff');
+  ell(c, x, y, r, r * (st.blink ? 0.12 : 1.05)); c.fillStyle = '#ffffff'; c.fill(); c.stroke(); SH.last = null;
   if (st.blink) return;
-  circle(c, x + r * 0.22, y + r * 0.08, r * 0.68); fill(c, P.eye || '#1d1d1d');
-  if (P.eye && P.eye !== '#1d1d1d' && P.eye !== '#2a1a10' && P.eye !== '#3a2412') { circle(c, x + r * 0.26, y + r * 0.1, r * 0.36); fill(c, '#111'); }
-  circle(c, x + r * 0.42, y - r * 0.28, r * 0.26); fill(c, '#ffffff');
+  const iris = P.eye || '#1d1d1d';
+  const dark = iris === '#1d1d1d' || iris === '#2a1a10' || iris === '#3a2412';
+  circle(c, x + r * 0.2, y + r * 0.08, r * 0.74); fill(c, iris);
+  if (!dark) { circle(c, x + r * 0.24, y + r * 0.12, r * 0.4); fill(c, '#14100c'); }
+  else { circle(c, x + r * 0.2, y + r * 0.3, r * 0.42); c.fillStyle = 'rgba(255,255,255,.12)'; c.fill(); }
+  circle(c, x + r * 0.44, y - r * 0.26, r * 0.3); fill(c, '#ffffff');
+  circle(c, x - r * 0.05, y + r * 0.38, r * 0.13); fill(c, 'rgba(255,255,255,.85)');
 }
 
 function zzz(c, x, y, t) {
@@ -214,9 +242,9 @@ function drawTail(c, A, P, x, y, wag, scale = 1) {
       break; }
     case 'bushy': case 'ringed':
       c.lineWidth = 1.6;
-      ell(c, -12 * scale, -7 * scale, 13 * scale, 6.5 * scale, -0.45); fs(c, col);
-      if (t === 'ringed') { c.save(); ell(c, -12 * scale, -7 * scale, 13 * scale, 6.5 * scale, -0.45); c.clip(); c.fillStyle = '#f6e0c8'; for (let i = 0; i < 4; i++) { c.save(); c.translate(-4 * scale - i * 6 * scale, -3 * scale - i * 2.6 * scale); c.rotate(-0.45); c.fillRect(-1.5, -10, 3, 20); c.restore(); } c.restore(); ell(c, -12 * scale, -7 * scale, 13 * scale, 6.5 * scale, -0.45); c.stroke(); }
-      if (P.tailTip || A.pattern === 'husky') { ell(c, -22 * scale, -11.5 * scale, 4 * scale, 3.4 * scale, -0.45); fs(c, P.tailTip || '#ffffff'); }
+      ell(c, -7 * scale, -9 * scale, 12 * scale, 6 * scale, -0.95); fs(c, col);
+      if (t === 'ringed') { c.save(); ell(c, -7 * scale, -9 * scale, 12 * scale, 6 * scale, -0.95); c.clip(); c.fillStyle = '#f6e0c8'; for (let i = 0; i < 4; i++) { c.save(); c.translate(-2 * scale - i * 3.4 * scale, -3 * scale - i * 4.4 * scale); c.rotate(-0.95); c.fillRect(-1.5, -10, 3, 20); c.restore(); } c.restore(); ell(c, -7 * scale, -9 * scale, 12 * scale, 6 * scale, -0.95); c.stroke(); }
+      if (P.tailTip || A.pattern === 'husky') { ell(c, -12.5 * scale, -16.5 * scale, 4.2 * scale, 3.6 * scale, -0.95); fs(c, P.tailTip || '#ffffff'); }
       break;
     case 'stub': ell(c, -1, -3, 3.2, 2.6); fs(c, col); break;
     case 'puff': ell(c, -2, -3, 5, 4.5); fs(c, col); break;
@@ -313,7 +341,7 @@ function quad(c, A, P, pose, t, st) {
   const wag = pose === 'idle' || play ? Math.sin(t * (A.kind === 'cat' || A.kind === 'bigcat' ? 2 : 9)) * 0.3 : walk ? Math.sin(ph) * 0.15 : 0;
   if (A.tail && A.tail !== 'none') {
     if (sleep && (A.tail === 'long' || A.tail === 'thick' || A.tail === 'bushy' || A.tail === 'ringed')) drawTail(c, A, P, -L * 0.45, by + H * 0.2, -1.9);
-    else drawTail(c, A, P, -L * 0.47, by - H * 0.15, wag);
+    else drawTail(c, A, P, -L * (A.tail === 'bushy' || A.tail === 'ringed' ? 0.4 : 0.47), by - H * 0.15, wag);
   }
   // body
   c.lineWidth = 1.6;
@@ -323,6 +351,7 @@ function quad(c, A, P, pose, t, st) {
   if (A.pattern === 'husky') { c.save(); ell(c, bx, by, L * 0.52, H * 0.52); c.clip(); ell(c, bx, by - H * 0.45, L * 0.55, H * 0.35); fill(c, P.dark); c.restore(); }
   if (A.pattern === 'collie') { c.save(); ell(c, bx, by, L * 0.52, H * 0.52); c.clip(); ell(c, bx, by + H * 0.55, L * 0.55, H * 0.35); fill(c, P.belly); c.restore(); }
   if (A.pattern === 'urajiro' || A.pattern === 'blaze' || A.pattern === 'chest') { c.save(); ell(c, bx, by, L * 0.52, H * 0.52); c.clip(); ell(c, bx + L * 0.1, by + H * 0.55, L * 0.45, H * 0.3); fill(c, P.belly); c.restore(); }
+  gloss(c, bx - L * 0.1, by - H * 0.27, L * 0.22, H * 0.11, 0.2);
   if (!A.fluffy) { ell(c, bx, by, L * 0.52, H * 0.52); c.stroke(); }
   // near legs
   if (!sleep) {
@@ -388,6 +417,8 @@ function quad(c, A, P, pose, t, st) {
   if (A.beard) { c.beginPath(); c.moveTo(hx + r * 0.75, hy + r * 0.5); c.lineTo(hx + r * 0.6, hy + r * 1.2); c.lineTo(hx + r * 0.95, hy + r * 0.55); c.closePath(); fs(c, shade(P.main, -0.1)); }
   if (A.tassels) { circle(c, hx + r * 0.15, hy + r * 1.05, 2); fs(c, P.main); }
   if (A.horns) { c.beginPath(); c.moveTo(hx - r * 0.1, hy - r * 0.7); c.quadraticCurveTo(hx - r * 0.7, hy - r * 1.6, hx - r * 0.95, hy - r * 0.9); c.lineTo(hx - r * 0.5, hy - r * 0.6); c.closePath(); fs(c, '#d8c8a8'); }
+  gloss(c, hx - r * 0.2, hy - r * 0.5, r * 0.36, r * 0.18, 0.2);
+  if (!A.bill && A.kind !== 'horse' && !sleep) blush(c, hx + r * 0.45, hy + r * 0.38, r * 0.2);
   // eye
   eye(c, hx + r * 0.32, hy - r * 0.12, r * (A.kind === 'cat' || A.kind === 'fox' ? 0.27 : 0.24), P, st);
   if (A.pattern === 'mask' && !sleep) { /* mask darkens around eye via muzzle */ }
@@ -417,7 +448,7 @@ function birdDraw(c, A, P, pose, t, st) {
   }
   // tail
   if (!A.train) {
-    c.save(); c.translate(-5, by + 6); c.rotate(fly ? 1.35 : 0.5);
+    c.save(); c.translate(-5, by + 6); c.rotate(fly ? 1.35 : 1.0);
     c.beginPath(); c.moveTo(-3.2, 0); c.lineTo(-1.5, 20 * tl); c.lineTo(1.5, 21 * tl); c.lineTo(3.2, 0); c.closePath(); fs(c, P.tail);
     if (A.tail2) { c.beginPath(); c.moveTo(-1.6, 8 * tl); c.lineTo(-0.8, 19.5 * tl); c.lineTo(1.2, 20.5 * tl); c.lineTo(2, 8 * tl); c.closePath(); fill(c, A.tail2); c.beginPath(); c.moveTo(-3.2, 0); c.lineTo(-1.5, 20 * tl); c.lineTo(1.5, 21 * tl); c.lineTo(3.2, 0); c.closePath(); c.stroke(); }
     c.restore();
@@ -430,6 +461,7 @@ function birdDraw(c, A, P, pose, t, st) {
   const rot = fly ? 1.15 : 0.45;
   ell(c, 0, by, 10, 13, rot); fs(c, P.main);
   c.save(); ell(c, 0, by, 10, 13, rot); c.clip(); ell(c, 6, by + 5, 7, 10, rot); fill(c, P.belly); if (A.scallop) { c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 0.8; for (let i = 0; i < 6; i++) { c.beginPath(); c.arc(-4 + (i % 3) * 4, by - 6 + Math.floor(i / 3) * 4, 2, 0, Math.PI); c.stroke(); } c.strokeStyle = OUT; } c.restore();
+  gloss(c, -3, by - 6, 4, 2.5, 0.22);
   ell(c, 0, by, 10, 13, rot); c.stroke();
   // wing
   c.save(); c.translate(-2, by - 2);
@@ -455,6 +487,7 @@ function birdDraw(c, A, P, pose, t, st) {
   if (A.cheek) { circle(c, hx + 3, hy + 3, 2.6); fill(c, A.cheek); }
   if (A.jaw) { ell(c, hx + 6, hy + 4, 3, 2); fill(c, A.jaw); }
   c.restore();
+  gloss(c, hx - 3, hy - 4, 3, 1.6, 0.25);
   circle(c, hx, hy, 8); c.stroke();
   // beak
   c.lineWidth = 1.3 / s;
@@ -601,6 +634,7 @@ function blobDraw(c, A, P, pose, t, st) {
   if (P.stripe) { c.fillStyle = P.stripe; c.fillRect(-rx, by - ry * 0.95, rx * 2, 2.4); }
   if (P.spikes) { ell(c, rx * 0.4, by - 1, rx * 0.65, ry * 0.85); fill(c, P.main); }
   c.restore();
+  gloss(c, -rx * 0.25, by - ry * 0.55, rx * 0.35, ry * 0.18, 0.22);
   ell(c, 0, by, rx, ry); c.stroke();
   // ears
   const hx = rx * 0.62, hy = by - ry * 0.25;
@@ -610,6 +644,7 @@ function blobDraw(c, A, P, pose, t, st) {
   else if (A.ears === 'petal') { ell(c, hx - 4, hy - ry * 0.58, 3.4, 2.4, -0.5); fs(c, P.patch2 || P.main); }
   if (A.cheeks) { circle(c, hx + 2, hy + 4, 4.5); fs(c, P.belly); }
   // face
+  if (!sleep) blush(c, hx + 3, hy + 3.5, 2.6);
   eye(c, hx + 1, hy - 1, A.bigEye ? 3.4 : 2.3, P, sleep ? { closed: true } : st);
   ell(c, hx + rx * 0.33, hy + 2, 1.5, 1.1); fs(c, P.nose);
   if (!sleep) { c.lineWidth = 0.5; c.beginPath(); c.moveTo(hx + rx * 0.34, hy + 3); c.lineTo(hx + rx * 0.62, hy + 2); c.moveTo(hx + rx * 0.34, hy + 3.4); c.lineTo(hx + rx * 0.62, hy + 4.5); c.stroke(); c.lineWidth = 1.6 / s; }
@@ -683,6 +718,7 @@ function bipedDraw(c, A, P, pose, t, st) {
   ell(c, hx + 5.5, hy + 1.6, 4.2, 3.2); fs(c, shade(P.main, 0.06));
   circle(c, hx + 8.6, hy + 0.6, 1.4); fill(c, P.nose);
   if (A.smile && !sleep) { c.beginPath(); c.arc(hx + 6.5, hy + 2.6, 1.8, 0.1 * Math.PI, 0.9 * Math.PI); c.lineWidth = 0.8; c.stroke(); c.lineWidth = 1.6 / s; }
+  if (!sleep) blush(c, hx + 3.5, hy + 2.2, 1.8);
   eye(c, hx + 2.2, hy - 1.6, 1.9, P, st);
   if (sleep) zzz(c, hx + 6, hy - 8, t);
   c.restore();
@@ -710,6 +746,7 @@ function sitterDraw(c, A, P, pose, t, st) {
   circle(c, hx, hy, 10); fs(c, A.face || P.main);
   if (A.mask) { ell(c, hx - 2.5, hy - 0.5, 4.2, 2.2, -0.25); fill(c, A.mask); ell(c, hx + 4.5, hy - 0.5, 4.2, 2.2, 0.25); fill(c, A.mask); }
   const closed = sleep;
+  if (!closed) { blush(c, hx - 5, hy + 3, 2.2); blush(c, hx + 6, hy + 3, 2.2); }
   eye(c, hx - 3, hy - 1, 1.9, P, closed ? { closed: true } : st);
   eye(c, hx + 4, hy - 1, 1.9, P, closed ? { closed: true } : st);
   if (A.bigNose) { ell(c, hx + 0.6, hy + 3.5, 2.8, 3.8); fs(c, P.nose); }
@@ -735,10 +772,11 @@ export function drawAnimal(c, species, opts = {}) {
   c.scale(opts.scale || 1, opts.scale || 1);
   if (opts.shadow !== false && !(A.plan === 'fish' || A.plan === 'axolotl')) {
     const w = A.plan === 'quad' ? A.len * 0.55 : A.plan === 'bird' ? 10 * (A.size || 1) : 16 * (A.size || 1);
-    ell(c, 0, 0, w, w * 0.22); c.fillStyle = 'rgba(30,20,0,.22)'; c.fill();
+    const sg = c.createRadialGradient(0, 0, 0, 0, 0, w); sg.addColorStop(0, 'rgba(40,30,10,.32)'); sg.addColorStop(1, 'rgba(40,30,10,0)');
+    c.save(); c.scale(1, 0.26); c.beginPath(); c.arc(0, 0, w * 1.05, 0, Math.PI * 2); c.fillStyle = sg; c.fill(); c.restore(); SH.last = null;
   }
   if ((opts.facing || 1) < 0) c.scale(-1, 1);
-  c.lineJoin = 'round'; c.lineCap = 'round'; c.strokeStyle = OUT; c.lineWidth = 1.6;
+  c.lineJoin = 'round'; c.lineCap = 'round'; c.strokeStyle = OUT; c.lineWidth = 1.45;
   PLANS[A.plan](c, A, P, pose, t, st);
   if (opts.mut === 'cosmic' || opts.mut === 'rainbow' || opts.mut === 'golden' || opts.mut === 'frost') sparkles(c, A, t, opts.mut);
   c.restore();

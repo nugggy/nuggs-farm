@@ -22,6 +22,7 @@ const world = createWorld(document.getElementById('world'), {
   modalOpen: () => UI.modalOpen(),
 });
 UI.attachWorld(world);
+world.setQuality(E.S.settings.quality || 'high');
 window.addEventListener('resize', () => world.resize());
 UI.init();
 
@@ -88,3 +89,9 @@ window.addEventListener('nf-do-update', () => {
 });
 
 setTimeout(() => checkForUpdate(false), 2500);
+
+// Fade out the loading screen once fonts are ready and the first frame is drawn.
+const splash = document.getElementById('splash');
+Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise(r => setTimeout(r, 1500))]).then(() => {
+  requestAnimationFrame(() => { splash.classList.add('done'); setTimeout(() => splash.remove(), 600); });
+});

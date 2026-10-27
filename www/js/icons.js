@@ -39,6 +39,7 @@ const P = {
   info: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/>',
   paw: '<ellipse cx="12" cy="15.5" rx="4.5" ry="4" fill="currentColor"/><ellipse cx="6" cy="10.5" rx="2" ry="2.6" fill="currentColor"/><ellipse cx="18" cy="10.5" rx="2" ry="2.6" fill="currentColor"/><ellipse cx="9.3" cy="6" rx="2" ry="2.6" fill="currentColor"/><ellipse cx="14.7" cy="6" rx="2" ry="2.6" fill="currentColor"/>',
   download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  gear: '<path d="M12 2.8l1.6 2.3 2.7-.6.6 2.7 2.3 1.6-1.2 2.5 1.2 2.5-2.3 1.6-.6 2.7-2.7-.6L12 21.2l-1.6-2.3-2.7.6-.6-2.7-2.3-1.6 1.2-2.5-1.2-2.5 2.3-1.6.6-2.7 2.7.6z" fill="currentColor" opacity=".9"/><circle cx="12" cy="12" r="3.4" fill="#fff" opacity=".9"/>',
   fox: '<path d="M3 4l5 4h8l5-4-1.5 8.5L12 20l-7.5-7.5z" fill="#f07b2a" stroke="#9c4410" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 13.5 12 20l4-6.5c-1.3.9-2.6 1.3-4 1.3s-2.7-.4-4-1.3z" fill="#fff"/><circle cx="9" cy="11" r="1" fill="#222"/><circle cx="15" cy="11" r="1" fill="#222"/>',
 };
 

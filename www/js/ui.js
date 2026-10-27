@@ -6,7 +6,7 @@ import {
   xpForLevel, GOALS, ACHIEVEMENTS, MAX_LEVEL, HABITAT_UPGRADES,
 } from './data.js';
 import { icon } from './icons.js';
-import { portrait } from './art.js';
+import { portrait, drawAnimal, artBounds } from './art.js';
 import { sfx, setSound } from './audio.js';
 import { CREDITS } from './credits.js';
 import { APP_VERSION } from './version.js';
@@ -27,6 +27,8 @@ let lastSig = '';
 // ---------- small building blocks ----------
 const img = (species, mut, cls = '') =>
   `<img class="ph ${cls} ${mut === 'rainbow' ? 'mut-rainbow' : ''}" src="${portrait(species, mut, cls.includes('heroimg') ? 420 : 160, cls.includes('silhouette'))}" alt="${esc(SPECIES[species].name)}" draggable="false">`;
+const liveCanvas = (species, mut, baby) => `<canvas class="livecv" data-sp="${species}" data-mut="${mut || ''}" data-baby="${baby ? 1 : 0}"></canvas>`;
+const gauge = (kind, a, label, ic) => `<div class="gauge g-${kind}" data-gauge="${kind}|${a.id}" style="--v:${Math.round(a[kind])}"><div class="ring">${icon(ic)}</div><span>${label}</span><b>${Math.round(a[kind])}%</b></div>`;
 const photo = species => `<figure class="realphoto"><img src="img/animals/${species}.jpg" alt="Photo of a ${esc(SPECIES[species].name)}" loading="lazy"><figcaption>Real-life photo${CREDITS[species] ? ` · ${esc(CREDITS[species].author.slice(0, 40))}, ${esc(CREDITS[species].licence)}` : ''}</figcaption></figure>`;
 const starRow = n => `<span class="stars">${[1, 2, 3, 4, 5].map(i => icon(i <= n ? 'star' : 'starEmpty')).join('')}</span>`;
 const sexIcon = s => icon(s === 'm' ? 'male' : 'female', 'sex');
@@ -69,12 +71,12 @@ function renderHUD() {
   const need = xpForLevel(S.level);
   const p = S.level >= MAX_LEVEL ? 100 : (S.xp / need) * 100;
   $('#hud').innerHTML = `
-    <button class="lvl" data-act="tab" data-arg="more" style="--p:${p}"><span>${S.level}</span></button>
+    <button class="lvl" data-act="tab" data-arg="more" style="--p:${p}" aria-label="Level ${S.level}"><span>${S.level}</span></button>
     <div class="res"><span class="pill" id="h-coins">${icon('coin')}<b>${fmt(S.coins)}</b></span>
     <span class="pill" id="h-gems">${icon('gem')}<b>${fmt(S.gems)}</b></span>
     <span class="pill" id="h-feed" data-act="feedAll">${icon('feed')}<b>${fmt(S.feed)}</b></span>
     <span class="pill rep" title="Reputation">${icon('heart')}<b>${Math.round(S.rep)}</b></span></div>
-    <button class="iconbtn" data-act="toggleSound" aria-label="Sound">${icon(S.settings.sound ? 'sound' : 'mute')}</button>`;
+    <button class="iconbtn" data-act="settings" aria-label="Settings">${icon('gear')}</button>`;
 }
 function updateHUD() {
   const set = (id, v) => { const el = document.querySelector(id + ' b'); if (el && el.textContent !== v) { el.textContent = v; el.parentElement.classList.remove('bump'); void el.offsetWidth; el.parentElement.classList.add('bump'); } };
@@ -86,7 +88,9 @@ function updateHUD() {
 
 function renderEvent() {
   const el = $('#event');
-  if (!S.event || Date.now() > S.event.ends) { el.innerHTML = ''; el.hidden = true; return; }
+  const active = S.event && Date.now() < S.event.ends;
+  document.body.classList.toggle('has-event', !!active);
+  if (!active) { el.innerHTML = ''; el.hidden = true; return; }
   const ev = E.EVENTS[S.event.id];
   el.hidden = false;
   el.className = 'event ev-' + S.event.id;
@@ -113,15 +117,80 @@ function render() {
   const view = $('#view'), wwrap = $('#worldwrap');
   const inWorld = tab === 'farm' && farmMode === 'world';
   wwrap.hidden = !inWorld; view.hidden = inWorld;
+  document.body.classList.toggle('in-world', inWorld);
   if (inWorld) { world.show(); renderWorldOverlay(); }
   else {
     world.hide();
     const scroll = view.scrollTop;
-    view.innerHTML = tab === 'farm' ? `<div class="listhead">${btn('farmMode', `${icon('farm')} Back to the farm`, 'world', 'go')}</div>` + renderFarm() : VIEWS[tab]();
+    view.innerHTML = `<div class="page page-${tab}">${pageHead()}${tab === 'farm' ? renderFarm() : VIEWS[tab]()}</div>`;
     view.scrollTop = scroll;
   }
   renderModal();
   lastSig = signature();
+}
+
+const PAGES = {
+  farm: ['Farm list', 'Every plot at a glance'],
+  shop: ['Shop', 'Animals, buildings and supplies'],
+  orders: ['Orders', 'Customers looking for the perfect animal'],
+  shows: ['Show Ring', 'Compete for ribbons, coins and gems'],
+  book: ['Encyclopaedia', 'Every species, mutation and secret pairing'],
+  more: ['Goals', 'Your progress, achievements and settings'],
+};
+function pageHead() {
+  const [title, sub] = PAGES[tab];
+  return `<header class="pagehead">${tab === 'farm' ? btn('farmMode', icon('farm'), 'world', 'round soft', 'aria-label="Back to the farm"') : ''}<div><h1>${title}</h1><p>${sub}</p></div></header>`;
+}
+
+// Animated animal stages inside sheets
+let liveRaf = 0;
+function startLive() {
+  if (liveRaf) return;
+  const t0 = performance.now();
+  const loop = now => {
+    const list = document.querySelectorAll('canvas.livecv');
+    if (!list.length) { liveRaf = 0; return; }
+    const t = (now - t0) / 1000;
+    for (const cv of list) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = cv.clientWidth, h = cv.clientHeight;
+      if (!w || !h) continue;
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+      const c = cv.getContext('2d');
+      c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+      const sp = cv.dataset.sp, b = artBounds(sp);
+      const sc = Math.min((w * 0.6) / b.w, (h * 0.66) / b.h) * (cv.dataset.baby === '1' ? 0.7 : 1);
+      const cycle = Math.floor(t / 3.2) % 4, pose = ['idle', 'play', 'idle', 'walk'][cycle];
+      c.save(); c.translate(w / 2, h * 0.86);
+      drawAnimal(c, sp, { pose, t, mut: cv.dataset.mut || null, scale: sc });
+      c.restore();
+    }
+    liveRaf = requestAnimationFrame(loop);
+  };
+  liveRaf = requestAnimationFrame(loop);
+}
+
+function confetti(strength = 1) {
+  if ((S.settings.quality || 'high') !== 'high') return;
+  const cv = document.createElement('canvas');
+  cv.className = 'confetti';
+  document.body.appendChild(cv);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), W = innerWidth, H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const c = cv.getContext('2d'); c.scale(dpr, dpr);
+  const cols = ['#ff5f6d', '#ffd23f', '#4fd1c5', '#b98cff', '#3d9a4b', '#5fb4e6'];
+  const bits = Array.from({ length: Math.round(130 * strength) }, () => ({ x: W / 2 + (Math.random() - 0.5) * 80, y: H * 0.38, vx: (Math.random() - 0.5) * 900, vy: -300 - Math.random() * 700, r: Math.random() * 6, s: 5 + Math.random() * 6, c: cols[Math.floor(Math.random() * cols.length)], w: (Math.random() - 0.5) * 14 }));
+  let last = performance.now(), life = 0;
+  const step = now => {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; life += dt;
+    c.clearRect(0, 0, W, H);
+    for (const b of bits) {
+      b.vy += 1100 * dt; b.vx *= 0.985; b.x += b.vx * dt; b.y += b.vy * dt; b.r += b.w * dt;
+      c.save(); c.translate(b.x, b.y); c.rotate(b.r); c.scale(1, Math.cos(b.r * 2)); c.fillStyle = b.c; c.globalAlpha = Math.max(0, 1 - life / 2.8); c.fillRect(-b.s / 2, -b.s / 4, b.s, b.s / 2); c.restore();
+    }
+    if (life < 2.8) requestAnimationFrame(step); else cv.remove();
+  };
+  requestAnimationFrame(step);
 }
 
 function renderWorldOverlay() {
@@ -150,6 +219,7 @@ let world = null;
 export function attachWorld(w) { world = w; }
 export function setPrompt(label) {
   const b = $('#interact');
+  document.body.classList.toggle('has-prompt', !!label);
   if (!label) { b.hidden = true; return; }
   b.hidden = false; b.innerHTML = `${icon('paw')}${esc(label)}`;
 }
@@ -391,7 +461,8 @@ function renderModal() {
   const sheet = root.querySelector('.sheet');
   const scroll = sheet && sheet.dataset.kind === top.kind + top.arg ? sheet.scrollTop : 0;
   root.innerHTML = `<div class="backdrop" data-act="closeModal"></div><div class="sheet ${top.kind}" data-kind="${esc(top.kind + top.arg)}">
-    <button class="x" data-act="closeModal" aria-label="Close">${icon('close')}</button>${content}</div>`;
+    <div class="grab"></div><button class="x" data-act="closeModal" aria-label="Close">${icon('close')}</button>${content}</div>`;
+  startLive();
   root.querySelector('.sheet').scrollTop = scroll;
 }
 
@@ -451,16 +522,12 @@ const MODALS = {
     const adult = E.isAdult(a);
     const inShow = S.show && SPECIES[a.species].group === S.show.group && !S.show.entry && adult && !a.sick;
     const g = a.genes;
-    return `<div class="hero ${a.mut ? 'has-mut glow-' + a.mut : ''}">${img(a.species, a.mut, 'heroimg')}${a.mut ? `<div class="mutbanner mut-${a.mut}-chip">${icon('sparkle')}${MUTATIONS[a.mut].name}</div>` : ''}</div>
+    return `<div class="stage ${a.mut ? 'has-mut glow-' + a.mut : ''}" style="--hab:${GROUPS[sp.group].colour}">${liveCanvas(a.species, a.mut, !adult)}${a.mut ? `<div class="mutbanner mut-${a.mut}-chip">${icon('sparkle')}${MUTATIONS[a.mut].name}</div>` : ''}<span class="stage-tier">${tierBadge(sp.tier)}</span></div>
       <div class="namebar">${sexIcon(a.sex)}<h2 id="aname">${esc(a.name)}</h2>${btn('rename', 'Rename', id, 'tiny ghost')}</div>
       <div class="sub">${sp.name} · Generation ${a.gen} · ${starRow(E.stars(a))}</div>
       <div class="sub">${animalStatus(a)} ${traitChip(a.trait)} ${a.ribbons ? `<span class="chip">${icon('ribbon')}${a.ribbons}</span>` : ''}</div>
       ${a.trait ? `<p class="note">${TRAITS[a.trait].name}: ${TRAITS[a.trait].desc}</p>` : ''}
-      <div class="needs">
-        <div><span>Hunger</span>${bar('hunger', a.id, a.hunger)}</div>
-        <div><span>Happiness</span>${bar('happy', a.id, a.happy)}</div>
-        <div><span>Health</span>${bar('health', a.id, a.health)}</div>
-      </div>
+      <div class="gauges">${gauge('hunger', a, 'Hunger', 'bowl')}${gauge('happy', a, 'Happiness', 'heart')}${gauge('health', a, 'Health', 'cross')}</div>
       <div class="genes"><h4>${icon('dna')}Genes <small>(passed on to babies)</small></h4>
         ${[['Vigour', 'vig', 'Helps breeding success'], ['Charm', 'charm', 'Counts most at shows'], ['Smarts', 'smarts', 'Adds to overall quality']].map(([l, k, d]) => `<div class="gene"><span>${l}<small>${d}</small></span><div class="gbar"><i style="width:${g[k]}%"></i></div><b>${g[k]}</b></div>`).join('')}
       </div>
@@ -589,7 +656,7 @@ const MODALS = {
   litter({ babies, recipe, mum, dad }) {
     return `<div class="celebrate">${icon('sparkle', 'huge spin')}<h2>${recipe ? 'A new species!' : babies.length > 1 ? `${babies.length} babies born` : 'A baby is born'}</h2>
       <p>${esc(mum.name)} and ${esc(dad.name)} ${recipe ? `produced something incredible: a ${SPECIES[babies[0]?.species]?.name}.` : 'have a new family.'}</p>
-      <div class="babies">${babies.map(b => `<div class="baby ${b.mut ? 'has-mut glow-' + b.mut : ''}" data-act="animal" data-arg="${b.id}">${img(b.species, b.mut)}<b>${sexIcon(b.sex)}${esc(b.name)}</b>${starRow(E.stars(b))}${mutChip(b.mut)}${traitChip(b.trait)}${b.home === -1 ? '<small class="bad">In nursery</small>' : ''}</div>`).join('')}</div>
+      <div class="babies">${babies.map(b => `<div class="baby ${b.mut ? 'has-mut glow-' + b.mut : ''}" data-act="animal" data-arg="${b.id}">${liveCanvas(b.species, b.mut, false)}<b>${sexIcon(b.sex)}${esc(b.name)}</b>${starRow(E.stars(b))}${mutChip(b.mut)}${traitChip(b.trait)}${b.home === -1 ? '<small class="bad">In nursery</small>' : ''}</div>`).join('')}</div>
       ${btn('closeModal', 'Lovely', '', 'go wide')}</div>`;
   },
 
@@ -615,7 +682,7 @@ const MODALS = {
     return `<div class="celebrate">${icon('sun', 'huge')}<h2>Welcome back</h2><p>You were away for ${dur(r.away)}.</p>
       ${r.babies ? `<p>${r.babies} baby animal${r.babies > 1 ? 's were' : ' was'} born while you were gone.</p>` : ''}
       ${r.lost ? `<p class="bad">${r.lost} neglected animal${r.lost > 1 ? 's were' : ' was'} taken by the welfare inspector.</p>` : ''}
-      <p class="note">Hunger and happiness drop at half speed while you are away. Hire staff to look after things.</p>${btn('closeModal', "Let's go", '', 'go wide')}</div>`;
+      <p class="note">While you are away, needs drop more slowly and no animal can be lost, but everyone will be hungry when you return. Hire staff to keep things running.</p>${btn('closeModal', "Let's go", '', 'go wide')}</div>`;
   },
 
   removed(a) {
@@ -661,6 +728,18 @@ const MODALS = {
     return `<h2>Building a ${name}</h2>${prog(p.building - total, p.building)}<p>Finishes in ${timer(p.building)}.</p>${btn('rushBuild', `Finish now ${icon('gem')}${E.gemCost((p.building - Date.now()) / 1000)}`, i, 'gem wide')}`;
   },
 
+  settings() {
+    const q = S.settings.quality || 'high';
+    return `<h2>Settings</h2><div class="list">
+      <div class="lrow">${icon('sound', 'big')}<div><b>Sound effects</b><small>Short synthesised sounds for actions.</small></div>${btn('toggleSound', S.settings.sound ? 'On' : 'Off', '', S.settings.sound ? 'go' : 'soft')}</div>
+      <div class="lrow">${icon('sparkle', 'big')}<div><b>Graphics</b><small>Low turns off lighting, shading and ambient effects for older phones.</small></div><div class="btnpair">${btn('quality', 'High', 'high', q === 'high' ? 'go' : 'soft')}${btn('quality', 'Low', 'low', q === 'low' ? 'go' : 'soft')}</div></div>
+      <div class="lrow">${icon('info', 'big')}<div><b>How to play</b></div>${btn('help', 'Open', '', 'soft')}</div>
+      <div class="lrow">${icon('refresh', 'big')}<div><b>Check for updates</b><small>Version ${APP_VERSION}</small></div>${btn('checkUpdate', 'Check', '', 'soft')}</div>
+      <div class="lrow">${icon('download', 'big')}<div><b>Back up or move your farm</b></div>${btn('saveCode', 'Open', '', 'soft')}</div>
+      <div class="lrow">${icon('book', 'big')}<div><b>Photo credits</b></div>${btn('credits', 'View', '', 'soft')}</div>
+    </div>`;
+  },
+
   message({ title, text }) { return `<h2>${esc(title)}</h2><p>${esc(text)}</p>${btn('closeModal', 'OK', '', 'go wide')}`; },
 };
 
@@ -691,6 +770,8 @@ const ACTIONS = {
   interact: () => world.interact(),
   closeModal: () => closeModal(),
   toggleSound: () => { S.settings.sound = !S.settings.sound; setSound(S.settings.sound); render(); },
+  settings: () => openModal('settings'),
+  quality: q => { S.settings.quality = q; world.setQuality(q); E.save(); renderModal(); },
   feedAll: () => E.feedAll(),
   claimGoal: () => E.claimGoal(),
   claimDaily: () => E.claimDaily(),
@@ -782,6 +863,7 @@ function liveUpdate() {
     else v = S.animals[id]?.[kind];
     if (v != null) { el.style.width = v + '%'; el.parentElement.classList.toggle('low', v < 30); }
   });
+  document.querySelectorAll('[data-gauge]').forEach(el => { const [k, id] = el.dataset.gauge.split('|'); const v = S.animals[id]?.[k]; if (v != null) { el.style.setProperty('--v', Math.round(v)); el.querySelector('b').textContent = Math.round(v) + '%'; el.classList.toggle('low', v < 30); } });
   document.querySelectorAll('[data-mill]').forEach(el => { const p = S.plots[+el.dataset.mill]; if (p) el.textContent = Math.floor(p.stock); });
 }
 
@@ -789,7 +871,7 @@ function liveUpdate() {
 function toast(msg, kind) {
   const el = document.createElement('div');
   el.className = 'toast ' + kind;
-  el.textContent = msg;
+  el.innerHTML = `${icon(kind === 'good' ? 'sparkle' : kind === 'bad' ? 'info' : kind === 'warn' ? 'sun' : 'paw')}<span>${esc(msg)}</span>`;
   $('#toasts').appendChild(el);
   if (kind === 'bad') sfx('bad');
   setTimeout(() => el.classList.add('out'), 2600);
@@ -837,11 +919,11 @@ export function init() {
       case 'toast': toast(d.msg, d.kind); break;
       case 'sfx': sfx(d); break;
       case 'reward': floatReward(d); updateHUD(); break;
-      case 'levelup': sfx('level'); openModal('levelup', d); break;
-      case 'litter': sfx(d.recipe || d.babies.some(b => b.mut) ? 'rare' : 'birth'); openModal('litter', d); break;
+      case 'levelup': sfx('level'); openModal('levelup', d); confetti(1.2); break;
+      case 'litter': sfx(d.recipe || d.babies.some(b => b.mut) ? 'rare' : 'birth'); openModal('litter', d); if (d.recipe || d.babies.some(b => b.mut)) confetti(1); break;
       case 'discover': if (S.stats.litters || Object.keys(S.discovered).length > 1) toast(`New species discovered: ${SPECIES[d.species].name}`, 'good'); break;
       case 'achievement': sfx('fanfare'); toast(`Achievement unlocked: ${d.name}. +${d.gems} gems`, 'good'); break;
-      case 'showresult': sfx(d.place <= 3 ? 'fanfare' : 'bad'); openModal('showresult', d); break;
+      case 'showresult': sfx(d.place <= 3 ? 'fanfare' : 'bad'); openModal('showresult', d); if (d.place === 1) confetti(1); break;
       case 'removed': openModal('removed', d); break;
       case 'built': toast(`${d.p.kind === 'habitat' ? GROUPS[d.p.group].name : BUILDINGS[d.p.type].name} is finished.`, 'good'); sfx('collect'); break;
       case 'neworder': toast(`New order: ${SPECIES[d.req.species].name}`, 'info'); break;
