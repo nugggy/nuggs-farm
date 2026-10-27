@@ -1,0 +1,59 @@
+# Builds a signed APK and publishes it as a GitHub Release when a version tag is pushed.
+# The app checks the latest release on launch and offers the new APK to players.
+name: Release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag matches package.json
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          if [ "v$PKG" != "${GITHUB_REF_NAME}" ]; then echo "Tag ${GITHUB_REF_NAME} does not match package.json $PKG"; exit 1; fi
+
+      - name: Engine tests
+        run: npm test
+
+      - name: Restore signing key
+        run: echo "${{ secrets.NF_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed APK
+        env:
+          NF_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          NF_KEYSTORE_PASSWORD: ${{ secrets.NF_KEYSTORE_PASSWORD }}
+          NF_KEY_ALIAS: ${{ secrets.NF_KEY_ALIAS }}
+          NF_KEY_PASSWORD: ${{ secrets.NF_KEY_PASSWORD }}
+        run: |
+          npx cap sync android
+          cd android && ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/nuggs-farm-${GITHUB_REF_NAME}.apk"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nuggs-farm-${{ github.ref_name }}.apk
+          generate_release_notes: true

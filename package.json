@@ -1,0 +1,33 @@
+{
+  "name": "nuggs-farm",
+  "version": "1.0.0",
+  "description": "Nuggs Farm animal breeding game",
+  "main": "index.js",
+  "scripts": {
+    "test": "node scripts/sim-test.mjs",
+    "dev": "http-server www -p 5173 -c-1",
+    "sync": "cap sync android",
+    "apk": "cap sync android && cd android && gradlew assembleRelease",
+    "version": "node scripts/bump-version.mjs",
+    "images": "node scripts/fetch-images.mjs",
+    "icons": "node scripts/make-icon.mjs && npx @capacitor/assets generate --android --iconBackgroundColor #4f9d45 --splashBackgroundColor #4f9d45"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
+    "@fontsource-variable/fredoka": "^5.3.0",
+    "@fontsource-variable/nunito": "^5.3.0",
+    "http-server": "^14.1.1",
+    "sharp": "^0.35.5"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.5.3"
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nuggs Farm</string>
+    <string name="title_activity_main">Nuggs Farm</string>
+    <string name="package_name">com.nugggy.nuggsfarm</string>
+    <string name="custom_url_scheme">com.nugggy.nuggsfarm</string>
+</resources>

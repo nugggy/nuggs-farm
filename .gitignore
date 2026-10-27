@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Release signing key. Never commit this. Back it up somewhere safe.
+keystore/
+*.jks
+*.keystore
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab
