@@ -29,13 +29,15 @@ UI.init();
 if (!E.S.seenIntro) { E.S.seenIntro = true; UI.showModal('intro'); }
 else if (away && away.away > 120) UI.showModal('offline', away);
 
-setInterval(() => E.tick(), 1000);
+// While hidden (app in the background, screen off, tab switched) the live loop stops and the
+// time is simulated on return with the gentler away rules instead.
+setInterval(() => { if (!document.hidden) E.tick(); }, 1000);
 setInterval(() => E.save(), 5000);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) E.save();
+  if (document.hidden) E.goAway();
   else { const r = E.catchUp(); if (r && r.away > 120) UI.showModal('offline', r); }
 });
-window.addEventListener('pagehide', () => E.save());
+window.addEventListener('pagehide', () => E.goAway());
 
 // Android hardware back button closes modals first.
 if (isNative && Cap.Plugins && Cap.Plugins.App) {

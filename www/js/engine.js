@@ -7,6 +7,13 @@ import {
 
 const SAVE_KEY = 'nuggsfarm.save.v1';
 const OFFLINE_CAP = 8 * 3600;
+// While the app is closed or in the background, needs drift at 5% of normal speed and
+// never fall below a comfortable floor. Nobody gets sick or loses health while you are away.
+const AWAY_PACE = 0.05;
+const AWAY_FLOOR = 55;
+const PLAY_COOLDOWN = 180000;
+const PLAYTIME_COOLDOWN = 300000;
+export const SNACK_PACK = { n: 5, coins: 75 };
 const SHOW_LENGTH = 600;
 
 export let S = null;
@@ -52,7 +59,7 @@ function freshState() {
     orders: [], nextOrderAt: t + 20000,
     show: null, showHistory: [],
     discovered: {}, mutSeen: {}, recipesFound: {},
-    staff: {}, items: { charm: 0, tonic: 0 },
+    staff: {}, items: { charm: 0, tonic: 0, snack: 3 },
     goal: 0, achievements: {},
     stats: { feeds: 0, litters: 0, babies: 0, sold: 0, orders: 0, mutations: 0, recipes: 0, ribbons: 0, firsts: 0, earned: 0, removed: 0, best4: false, best5: false, rainbow: false },
     daily: { last: '', streak: 0 },
@@ -81,9 +88,11 @@ function migrate(s) {
   return s;
 }
 
+// Set when the app goes into the background, so saves made while hidden do not hide the time away.
+let awaySince = 0;
 export function save() {
   if (!S) return;
-  S.last = now();
+  S.last = awaySince || now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { console.warn('Save failed', e); }
 }
 
@@ -131,7 +140,7 @@ function makeAnimal(species, opts = {}) {
     born: t, adultAt: opts.baby ? t + sp.grow * 1000 : t,
     genes: g, mut: opts.mut || null, trait: opts.trait !== undefined ? opts.trait : (Math.random() < 0.25 ? pick(TRAIT_IDS) : null),
     hunger: opts.baby ? 70 : 85, happy: 75, health: 100, sick: false,
-    home: opts.home ?? -1, breeding: null, restUntil: 0, petAt: 0, ribbons: 0, gen: opts.gen || 1,
+    home: opts.home ?? -1, breeding: null, restUntil: 0, petAt: 0, playAt: 0, ribbons: 0, gen: opts.gen || 1,
   };
   S.animals[id] = a;
   discover(a);
@@ -236,6 +245,45 @@ export function petAnimal(id) {
   a.petAt = now(); a.happy = clamp(a.happy + 18, 0, 100);
   addXp(1);
   emit('sfx', 'pet'); emit('change');
+}
+
+export const playWait = a => Math.max(0, (a.playAt || 0) + PLAY_COOLDOWN - now());
+export function playWith(id) {
+  const a = S.animals[id];
+  if (!a) return;
+  const wait = playWait(a);
+  if (wait > 0) { notify(`${a.name} is worn out from playing. Try again in ${dur(wait / 1000)}.`); return; }
+  a.playAt = now(); a.happy = clamp(a.happy + 25, 0, 100); a.hunger = clamp(a.hunger - 4, 0, 100);
+  addXp(1);
+  emit('sfx', 'play'); emit('change');
+}
+
+export function giveSnack(id) {
+  const a = S.animals[id];
+  if (!a) return;
+  if (S.items.snack < 1) { notify('No snacks left. Buy more in the shop under Supplies.', 'bad'); return; }
+  if (a.happy > 97) { notify(`${a.name} is already as happy as can be.`); return; }
+  S.items.snack--; a.happy = clamp(a.happy + 30, 0, 100); a.hunger = clamp(a.hunger + 8, 0, 100);
+  emit('sfx', 'feed'); emit('change');
+}
+
+export function buySnacks() {
+  if (!spend(SNACK_PACK.coins)) return;
+  S.items.snack += SNACK_PACK.n; emit('sfx', 'buy'); emit('change');
+}
+
+export const playtimeWait = p => Math.max(0, (p.playAt || 0) + PLAYTIME_COOLDOWN - now());
+export function playtime(idx) {
+  const p = S.plots[idx];
+  if (!p || p.kind !== 'habitat') return;
+  const list = animalsIn(idx);
+  if (!list.length) { notify('There is nobody here to play with.'); return; }
+  const wait = playtimeWait(p);
+  if (wait > 0) { notify(`Everyone needs a rest. Play time is ready again in ${dur(wait / 1000)}.`); return; }
+  p.playAt = now();
+  for (const a of list) a.happy = clamp(a.happy + 15, 0, 100);
+  addXp(2); emit('sfx', 'play'); emit('change');
+  notify(`Play time! ${list.length} animal${list.length > 1 ? 's are' : ' is'} happier.`, 'good');
 }
 
 export function treatCost(a) {
@@ -735,21 +783,23 @@ function happinessDrain(a) {
 
 function step(dt, offline) {
   const t = now();
-  const soft = offline ? 0.4 : 1;
+  // Lower a need by d, or while away, by a small fraction of d without dropping below the floor.
+  const ease = (v, d) => offline ? Math.max(Math.min(v, AWAY_FLOOR), v - d * AWAY_PACE) : v - d;
   for (const a of Object.values(S.animals)) {
     let h = 100 / (22 * 60);
     if (a.trait === 'hearty') h *= 0.7;
     if (a.trait === 'greedy') h *= 1.4;
     if (eventActive('heatwave')) h *= 2;
-    a.hunger = clamp(a.hunger - h * dt * soft, 0, 100);
-    a.happy = clamp(a.happy - happinessDrain(a) * dt * soft, 0, 100);
+    a.hunger = clamp(ease(a.hunger, h * dt), 0, 100);
+    a.happy = clamp(ease(a.happy, happinessDrain(a) * dt), 0, 100);
     const p = S.plots[a.home];
     const dirty = p && p.kind === 'habitat' && p.clean < 15;
-    if (a.hunger < 8 || dirty || a.happy < 8) a.health -= (100 / (18 * 60)) * dt * soft;
+    if (!offline && (a.hunger < 8 || dirty || a.happy < 8)) a.health -= (100 / (18 * 60)) * dt;
     else if (!a.sick && a.hunger > 40) a.health += (100 / (25 * 60)) * dt;
-    if (a.sick) a.health -= (100 / (30 * 60)) * dt * soft;
-    a.health = clamp(a.health, offline ? 30 : 0, 100);
-    if (!a.sick) {
+    if (a.sick && !offline) a.health -= (100 / (30 * 60)) * dt;
+    a.health = clamp(a.health, 0, 100);
+    if (offline) { /* no new illness while away */ }
+    else if (!a.sick) {
       let chance = a.health < 50 ? 0.0015 : 0.00003;
       if (a.trait === 'sickly') chance *= 3;
       if (a.trait === 'hardy') chance *= 0.15;
@@ -774,9 +824,9 @@ function step(dt, offline) {
     if (p.building) continue;
     if (p.kind === 'habitat') {
       const n = animalsIn(i).length;
-      let d = (0.012 + 0.011 * n) * dt * soft;
+      let d = (0.012 + 0.011 * n) * dt;
       if (eventActive('storm')) d *= 2;
-      p.clean = clamp(p.clean - d, 0, 100);
+      p.clean = clamp(ease(p.clean, d), 0, 100);
     } else if (p.type === 'feedmill') {
       let r = MILL.perLevel[p.lvl - 1] / MILL.rate;
       if (eventActive('storm')) r *= 2;
@@ -828,9 +878,16 @@ export function tick(dtOverride) {
   emit('tick');
 }
 
+// Call when the app is hidden. Time from here until catchUp() is treated as time away.
+export function goAway() {
+  if (awaySince) return;
+  save(); awaySince = S.last;
+}
+
 // Simulate the time the player was away, in coarse steps.
 export function catchUp() {
   const away = Math.min(OFFLINE_CAP, (now() - S.last) / 1000);
+  awaySince = 0;
   lastTick = now();
   if (away < 30) return null;
   const before = { coins: S.coins, animals: Object.keys(S.animals).length, babies: S.stats.babies };

@@ -320,6 +320,7 @@ function renderShop() {
   if (shopTab === 'supplies') {
     html += '<h3>Feed</h3><div class="list">' + [[25, ''], [100, 'Popular'], [400, 'Bulk']].map(([n, tag]) =>
       `<div class="lrow">${icon('feed', 'big')}<div><b>${n} feed</b>${tag ? ` <span class="chip good">${tag}</span>` : ''}<small>One meal for a common animal is 1 feed. Rarer animals eat more.</small></div>${btn('buyFeed', coins(n * FEED_PRICE), n)}</div>`).join('') + '</div>';
+    html += `<h3>Treats</h3><div class="list"><div class="lrow">${icon('cookie', 'big')}<div><b>${E.SNACK_PACK.n} snacks</b> <small>Owned: ${S.items.snack}</small><small>A tasty snack gives one animal a big happiness boost and a little food. Happy animals breed more reliably.</small></div>${btn('buySnacks', coins(E.SNACK_PACK.coins))}</div></div>`;
     html += '<h3>Breeding supplies</h3><div class="list">' + Object.entries(E.ITEMS).map(([id, it]) =>
       `<div class="lrow">${icon(id === 'charm' ? 'sparkle' : 'dna', 'big')}<div><b>${it.name}</b> <small>Owned: ${S.items[id]}</small><small>${it.desc}</small></div>${btn('buyItem', gems(it.gems), id, 'gem')}</div>`).join('') + '</div>';
     html += `<h3>Exchange</h3><div class="list"><div class="lrow">${icon('coin', 'big')}<div><b>Coin pouch</b><small>Swap 10 gems for ${fmt(1000 + S.level * 150)} coins.</small></div>${btn('buyCoins', gems(10), '', 'gem')}</div></div>`;
@@ -492,6 +493,7 @@ const MODALS = {
       <div class="actions">
         ${btn('feedHab', `${icon('bowl')}Feed (${feedNeed})`, idx, feedNeed ? 'go' : 'soft')}
         ${btn('clean', `${icon('broom')}Clean`, idx, p.clean < 50 ? 'warn' : 'soft')}
+        ${list.length ? btn('playtime', E.playtimeWait(p) ? `${icon('ball')}Play <span data-timer="${Date.now() + E.playtimeWait(p)}">${dur(E.playtimeWait(p) / 1000)}</span>` : `${icon('ball')}Play time`, idx, list.some(a => a.happy < 50) && !E.playtimeWait(p) ? 'love' : 'soft') : ''}
         ${btn('breedPick', `${icon('heart')}Breed${pairs ? ` (${pairs})` : ''}`, idx, pairs ? 'love' : 'soft')}
         ${btn('shopFor', `${icon('shop')}Buy`, p.group, 'soft')}
         ${up != null ? btn('upgrade', `${icon('arrowUp')}${coins(up)}`, idx, 'soft', `title="Upgrade to hold ${HABITAT_UPGRADES[p.lvl].cap}"`) : ''}
@@ -535,6 +537,8 @@ const MODALS = {
       <div class="actions">
         ${btn('feed', `${icon('bowl')}Feed (${sp.feed})`, id, a.hunger < 50 ? 'go' : 'soft')}
         ${btn('pet', `${icon('heart')}Pet`, id, 'soft')}
+        ${btn('play', E.playWait(a) ? `${icon('ball')}Play <span data-timer="${Date.now() + E.playWait(a)}">${dur(E.playWait(a) / 1000)}</span>` : `${icon('ball')}Play`, id, a.happy < 50 && !E.playWait(a) ? 'love' : 'soft')}
+        ${btn('snack', `${icon('cookie')}Snack (${S.items.snack})`, id, 'soft')}
         ${a.sick ? btn('treat', `${icon('cross')}Treat ${coins(E.treatCost(a))}`, id, 'warn') : ''}
         ${adult && !a.breeding ? btn('breedWith', `${icon('heart')}Breed`, id, 'love') : ''}
         ${a.breeding ? btn('rushBreed', `Finish now ${icon('gem')}${E.gemCost((a.breeding.ends - Date.now()) / 1000)}`, id, 'gem') : ''}
@@ -681,8 +685,7 @@ const MODALS = {
   offline(r) {
     return `<div class="celebrate">${icon('sun', 'huge')}<h2>Welcome back</h2><p>You were away for ${dur(r.away)}.</p>
       ${r.babies ? `<p>${r.babies} baby animal${r.babies > 1 ? 's were' : ' was'} born while you were gone.</p>` : ''}
-      ${r.lost ? `<p class="bad">${r.lost} neglected animal${r.lost > 1 ? 's were' : ' was'} taken by the welfare inspector.</p>` : ''}
-      <p class="note">While you are away, needs drop more slowly and no animal can be lost, but everyone will be hungry when you return. Hire staff to keep things running.</p>${btn('closeModal', "Let's go", '', 'go wide')}</div>`;
+      <p class="note">Your farm rests while you are away. Hunger, happiness and cleanliness only drift down a little, and nobody gets sick. Breeding, growing and feed mills keep going.</p>${btn('closeModal', "Let's go", '', 'go wide')}</div>`;
   },
 
   removed(a) {
@@ -694,7 +697,7 @@ const MODALS = {
       <p>You have inherited a patch of land on the Mid North Coast and a dream: to become the most famous animal breeder in the country.</p>
       <ol><li><b>Build habitats</b> on empty plots. Each kind of animal needs its own habitat.</li>
       <li><b>Buy a male and a female</b> of the same species, then pair them to breed.</li>
-      <li><b>Keep them happy.</b> Feed them, clean their habitat and treat sickness. Neglect means a visit from the welfare inspector.</li>
+      <li><b>Keep them happy.</b> Feed them, clean their habitat and treat sickness. Pet them, play with them and spoil them with snacks. Neglect means a visit from the welfare inspector.</li>
       <li><b>Improve your bloodlines.</b> Babies inherit their parents' genes. Breed your best animals to reach five stars.</li>
       <li><b>Hunt for rare colour mutations</b> like Golden, Frost, Cosmic and the legendary Rainbow.</li>
       <li><b>Discover secret pairings</b> that create species you cannot buy.</li>
@@ -813,6 +816,10 @@ const ACTIONS = {
   animal: id => openModal('animal', id),
   feed: id => E.feedAnimal(id),
   pet: id => E.petAnimal(id),
+  play: id => E.playWith(id),
+  snack: id => E.giveSnack(id),
+  playtime: i => E.playtime(+i),
+  buySnacks: () => E.buySnacks(),
   treat: id => E.treatAnimal(id),
   rushBreed: id => E.rushBreeding(id),
   rushGrow: id => E.rushGrowth(id),
@@ -843,9 +850,9 @@ export function goTab(t) { ACTIONS.tab(t); }
 // ---------- live updates ----------
 function signature() {
   const t = Date.now();
-  const parts = [tab, S.level, S.goal, S.plotsOwned, S.event?.id, S.orders.map(o => o.id).join(), S.show?.entry, S.show?.group, E.dailyAvailable(), S.items.charm];
-  for (const p of S.plots) parts.push(p ? (p.building ? 'b' : p.kind[0] + p.lvl + (p.clean < 30 ? 'd' : '')) : '-');
-  for (const a of Object.values(S.animals)) parts.push(a.id + a.home + (E.isAdult(a) ? 'A' : 'B') + (a.sick ? 'S' : '') + (a.breeding ? 'L' : '') + (a.restUntil > t ? 'R' : '') + (a.hunger < 30 ? 'H' : '') + (a.happy < 30 ? 'U' : ''));
+  const parts = [tab, S.level, S.goal, S.plotsOwned, S.event?.id, S.orders.map(o => o.id).join(), S.show?.entry, S.show?.group, E.dailyAvailable(), S.items.charm, S.items.snack];
+  for (const p of S.plots) parts.push(p ? (p.building ? 'b' : p.kind[0] + p.lvl + (p.clean < 30 ? 'd' : '') + (E.playtimeWait(p) ? 'p' : '')) : '-');
+  for (const a of Object.values(S.animals)) parts.push(a.id + a.home + (E.isAdult(a) ? 'A' : 'B') + (a.sick ? 'S' : '') + (a.breeding ? 'L' : '') + (a.restUntil > t ? 'R' : '') + (a.hunger < 30 ? 'H' : '') + (a.happy < 30 ? 'U' : '') + (E.playWait(a) ? 'P' : ''));
   return parts.join('|');
 }
 

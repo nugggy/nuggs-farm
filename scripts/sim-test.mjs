@@ -87,10 +87,33 @@ const code = E.exportSave();
 E.importSave(code);
 ok(Object.keys(E.S.animals).length >= 0 && E.S.level === 20, 'save code round trip');
 
-// Offline catch-up
-clock += 3 * 3600 * 1000;
+// More ways to make animals happy
+const pal = Object.values(S().animals).find(x => x.home === 1) || E.buyAnimal('husky', 'm', 1);
+pal.happy = 20; E.playWith(pal.id);
+ok(pal.happy === 45, 'playing raises happiness');
+E.playWith(pal.id);
+ok(pal.happy === 45, 'play has a cooldown');
+const snacks = S().items.snack; E.giveSnack(pal.id);
+ok(pal.happy === 75 && S().items.snack === snacks - 1, 'a snack raises happiness and is used up');
+E.buySnacks();
+ok(S().items.snack === snacks - 1 + E.SNACK_PACK.n, 'snacks can be bought');
+const hab = E.animalsIn(1); hab.forEach(x => { x.happy = 10; }); E.playtime(1);
+ok(hab.every(x => x.happy === 25), 'habitat play time cheers everyone up');
+
+// Offline catch-up: the farm rests while you are away
+const count = Object.keys(S().animals).length;
+for (const x of Object.values(S().animals)) { x.hunger = 100; x.happy = 100; x.health = 100; x.sick = false; }
+S().plots.forEach(p => { if (p && p.kind === 'habitat') p.clean = 100; });
+S().staff = {};
+E.goAway();
+clock += 30 * 1000; E.save();
+clock += 8 * 3600 * 1000;
 const r = E.catchUp();
-ok(r && r.away > 10000, 'offline catch-up ran');
+ok(r && r.away > 8 * 3600 - 1, 'saves while hidden do not shorten the time away');
+const all = Object.values(S().animals);
+ok(Object.keys(S().animals).length >= count && r.lost === 0, 'no animals lost while away');
+ok(all.every(x => !x.sick && x.health === 100), 'nobody gets sick while away');
+ok(all.every(x => x.hunger >= 54 && x.happy >= 54), 'needs stay comfortable after a full work day away');
 
 console.log(fails ? `\n${fails} FAILURES` : '\nAll checks passed');
 process.exit(fails ? 1 : 0);
